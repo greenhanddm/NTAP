@@ -1,0 +1,29 @@
+# pktt - Controls on-node packet tracing
+::> network interface show
+::> run -node <nodename> -command options ip.tcp.tso off
+
+pktt start {if | all} [-b bsize] [-d dir] [-s size] [-m pklen] [-v] [-i ipaddr] [-i ipaddr] ...
+::> node run -node <nodename> pktt start interface -d /etc/log -m 96/400 -s 10g -i client_ip
+::> node run -node <nodename> pktt dump all
+::> node run -node <nodename> pktt stop all
+
+http(s)://cluster-mgmt-ip/spi/<nodename>/etc/log/
+::> run -node <nodename> -command options ip.tcp.tso on
+
+# Examples of pktt start:
+1. pktt start e0
+This will start capturing network traffic from the "e0" interface. All traffic will be logged to a 128K circular buffer. Or, if tracing
+had been suspended previously it would be restarted.
+2. pktt start fa3 -d / -s 100m -b 2m
+This starts capturing traffic on the "fa3" interface, writing to a file called "/fa3.trc" which will be allowed to grow to a
+maximum size of 100MB, with a 2MB buffer.
+3. pktt start el10 -d /home -m 10k -b 500k -i ehost1 -i ehost2
+This starts capturing traffic to and from the hosts "ehost1" and "ehost2", storing the traces into the file "/home/el10.trc". Up to
+10K of each of the packets will be stored, in a 500K buffer. Note that this will only work if the hostnames can be resolved.
+pktt start all -b 128k -i 172.20.4.1
+All interfaces will start capturing traffic to and from the specified IP address. This is a quick way to look at traffic if you're not
+sure which interface to use but you want to see the packets from one or more IP addresses.
+4. pktt start ns0 -i 3FFE:81D0:107:2082::1
+After enabling IPv6 option, executing the pktt start command with IPv6 address as the filter will capture all packets that are
+coming from or to the IPv6 address. The trace file dumped after executing pktt dump command should display only the
+packets having the IPv6 address as the source or destination.
