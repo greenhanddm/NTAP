@@ -1,0 +1,15 @@
+csg-szh-netapp::volume create -vserver vs1 -volume vs1_ls -aggregate aggr1_csg_szh_netapp_03 -type DP
+
+csg-szh-netapp::volume> snapmirror create -source-path //vs1/vs1_root -destination-path //vs1/vs1_ls -type LS
+
+csg-szh-netapp::volume> initialize-ls-set //vs1/vs1_root  
+
+csg-szh-netapp::volume> csg-szh-netapp::volume> snapmirror show
+
+csg-szh-netapp::volume> snapmirror modify -source-path //vs1/vs1_root -destination-path //vs1/vs1_ls -schedule 8hour
+
+csg-szh-netapp::job schedule> show
+Name         Type      Description 
+-----------  --------- -----------------------------------------------------
+5min         cron      @:00,:05,:10,:15,:20,:25,:30,:35,:40,:45,:50,:55
+8hour        cron      @2:15,10:15,18:15

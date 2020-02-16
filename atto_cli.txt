@@ -1,0 +1,16 @@
+#Baud Rate set to 115200
+
+set IPDHCP mp1 disabled               
+set IPAddress mp1 143.182.146.20      
+set IPSubnetMask mp1 255.255.255.0    
+set IPGateway mp1 143.182.146.1       
+Set FCDataRate 1 8Gb                  
+Set FCConnMode 1 loop                 
+Set BridgeName bridgeX     
+SaveConfiguration Restart             
+
+set SNMP enabled
+get sasconnectorinfo all    #check SAS port status
+sasportdisable b            #disable SAS port b
+set ClosePort none          #enable web/ssh/telnet...
+           
