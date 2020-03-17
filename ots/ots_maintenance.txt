@@ -1,0 +1,138 @@
+1. 备份 Deploy VM配置数据
+##SSH登录deploy-vm 或 virsh console deploy-vm连接console台
+$ deploy backup create
+     (ONTAPdeploy) deploy backup create
+     Enter a password to encrypt the backup with:  #按照提示提供此备份的密码，此备份文件会使用此密码进行加密
+     Retype new password: 
+     The job for "deploy backup create" has been submitted with request-id 730. To monitor its progress, use the command "job monitor -request-id 730".
+     (ONTAPdeploy) 
+$ job monitor -request-id 730  #检查备份job是否成功
+     (ONTAPdeploy) job monitor -request-id 730
+     [Request 730 (success)]: Configuration backup "deploy_backup_20200314160357" created successfully.
+     (ONTAPdeploy) 
+$ deploy backup show -detailed  #显示系统中可用的备份
+     (ONTAPdeploy) deploy backup show -detailed
+     +--------------+---------------------------------------------------------------------------+
+     | Field        | Value                                                                     |
+     +--------------+---------------------------------------------------------------------------+
+     | Name         | deploy_backup_20200314160357                                              |
+     | Created      | 2020-03-14 16:03:57                                                       |
+     | Description  | -                                                                         |
+     | Size         | 50.94 KB                                                                  |
+     | Version      | 9.6.2123                                                                  |
+     | Variant      | linux64.debug.nodar                                                       |
+     | Download Url | https://172.16.0.141/backups/download/deploy_backup_20200314160357.tar.gz |
+     | ID           | 69052684-660d-11ea-92e7-525400b9e776                                      |
+     +--------------+---------------------------------------------------------------------------+
+     (ONTAPdeploy) 
+	 
+2. Depoly VM的日志
+##SSH登录deploy-vm 或 virsh console deploy-vm连接console台
+$ shell bash  #进入Shell
+     (ONTAPdeploy) shell bash
+     admin@deploy-vm:~$ cd /opt/netapp/log  #日志文件路径
+     admin@deploy-vm:/opt/netapp/log$ pwd
+     /opt/netapp/log
+     admin@deploy-vm:/opt/netapp/log$ ls
+     172.16.0.140         mediator.log.1
+     AsupService.log      nginx_access.log
+     celery.log           nginx_error.log
+     celery_beat.log      ontap_deploy_cli.log
+     esxadmin.log         postinst.log
+     esxadmin_server.log  pyAsup.log
+     hypnotoad.log        scst.log
+     hypnotoad.log.1      sdotadmin_network_connectivitycheck.log
+     kvmadmin.log         sdotadmin_server.log
+     lm_server.log        uwsgi_emperor.log
+     logging_service.log  uwsgi_kvmadmin_server.log
+     mediator.log         uwsgi_sdotadmin_server.log
+     admin@deploy-vm:/opt/netapp/log$
+	 admin@deploy-vm:/opt/netapp/log$exit  #exit退出Shell
+	 (ONTAPdeploy)
+	 
+3. 添加Storgae Pool
+##KVM宿主机上创建新的Storage Pool
+$ lsblk                          #显示Linux主机上的本地设备，然后选择将包含存储池的LUN
+     [root@ots01 ~]# lsblk
+     NAME                                  MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+     sda                                     8:0    0   200G  0 disk 
+     +-sda1                                  8:1    0     1G  0 part /boot
+     +-sda2                                  8:2    0   199G  0 part 
+       +-centos_ots01-root                 253:0    0    50G  0 lvm  /
+       +-centos_ots01-swap                 253:1    0  11.8G  0 lvm  [SWAP]
+       +-centos_ots01-home                 253:7    0 137.2G  0 lvm  /home
+     sdb                                     8:16   0     1T  0 disk 
+     +-pool_ots-kvm--cm--01_DataONTAPv.raw 253:2    0  10.8G  0 lvm  
+     +-pool_ots-kvm--cm--01_coredisk       253:3    0   120G  0 lvm  
+     +-pool_ots-kvm--cm--01_sdotconfig.iso 253:4    0     4M  0 lvm  
+     +-pool_ots-kvm--cm--01_root_1         253:5    0    68G  0 lvm  
+     +-pool_ots-kvm--cm--01_pool_ots_1     253:6    0   800G  0 lvm  
+     sdc                                     8:32   0     1T  0 disk  --#New LUN
+     sr0                                    11:0    1   4.3G  0 rom  
+$ virsh pool-define-as pool_ots_sdd logical --source-dev /dev/sdd --target=/dev/pool_ots_sdd  #在设备上定义存储池
+$ virsh pool-build pool_ots_sdd      #构建存储池
+$ virsh pool-start pool_ots_sdd      #启动存储池
+$ virsh pool-autostart pool_ots_sdd  #将存储池配置为在系统启动时自动启动
+$ virsh pool-list                #验证是否已创建存储池
+     [root@ots01 ~]# virsh pool-list
+      Name                 State      Autostart 
+     -------------------------------------------
+      ontap                active     yes       
+      ontap-1              active     yes       
+      pool_ots_sdc         active     yes       
+      pool_ots_sdd         active     yes 
+##SSH登录deploy-vm 或 virsh console deploy-vm连接console台
+$ host show
+$ host storage pool show -host-name 172.16.0.140
+     (ONTAPdeploy) host show       
+     +--------------+----------------------+-----------------+-------------------+
+     | Name         | Authentication State | Hypervisor Type | Management Server |
+     +--------------+----------------------+-----------------+-------------------+
+     | 172.16.0.140 | authenticated        | KVM             | -                 |
+     +--------------+----------------------+-----------------+-------------------+
+     (ONTAPdeploy) host storage pool show -host-name 172.16.0.140
+     +--------------+---------+--------+----------+--------------------+
+     | Name         | Type    | Status | Capacity | Available Capacity |
+     +--------------+---------+--------+----------+--------------------+
+     | pool_ots_sdc | logical | Online | 1.5 TB   | 313.25 GB          |
+     | pool_ots_sdd | logical | Online | 1.5 TB   | 512 GB             |
+     +--------------+---------+--------+----------+--------------------+ 
+$ cluster show
+     (ONTAPdeploy) cluster show
+     +--------+------------+--------------+---------------+------------+
+     | Name   | State      | IP           | ONTAP Version | Node Count |
+     +--------+------------+--------------+---------------+------------+
+     | kvm-cm | powered_on | 172.16.0.143 | 9.6.0         |          1 |
+     +--------+------------+--------------+---------------+------------+
+     (ONTAPdeploy) 
+$ node show -cluster-name kvm-cm
+     (ONTAPdeploy) node show -cluster-name kvm-cm
+     +-----------+--------------+------------+
+     | Name      | IP           | State      |
+     +-----------+--------------+------------+
+     | kvm-cm-01 | 172.16.0.144 | powered_on |
+     +-----------+--------------+------------+
+     (ONTAPdeploy) 
+
+4. 删除Storage Pool
+$ virsh pool-list --all
+     [root@ots01 ~]# virsh pool-list --all
+      Name                 State      Autostart 
+     -------------------------------------------
+      ontap                active     yes       
+      ontap-1              active     yes       
+      pool_ots             active     yes       
+      pool_ots_1           active     yes   -- need to delete
+$ virsh pool-destroy pool_ots_1	  
+$ virsh pool-undefine pool_ots_1
+$ virsh pool-list --all
+     [root@ots01 ~]# virsh pool-destroy pool_ots_1
+     Pool pool_ots_1 destroyed
+     [root@ots01 ~]# virsh pool-undefine pool_ots_1
+     Pool pool_ots_1 has been undefined
+     [root@ots01 ~]# virsh pool-list --all
+      Name                 State      Autostart 
+     -------------------------------------------
+      ontap                active     yes       
+      ontap-1              active     yes       
+      pool_ots             active     yes       
