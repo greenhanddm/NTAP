@@ -1,0 +1,287 @@
+I. 前期准备
+KVM宿主机配置（kvm01）
+OS  -- centos7.6 mini installation
+ONTAPSelect -- ONTAPdeploy2.12.3
+CPU -- 6 vCPU  
+MEM -- 24GB Memory
+NIC -- ens192（KVM宿主机管理网络）; ens224（OTS网络-集群管理/业务网络）
+HDD -- /dev/sda as 100GB ; /dev/sdb as 1TB ; /dev/sdc as 1.5TB ; /dev/sdd as 1.5TB
+
+
+II. OTS单节点集群部署过程
+1. 机器环境设置：
+##禁用Firewall
+$ systemctl stop firewalld
+$ systemctl status firewalld
+$ systemctl disable firewalld
+##禁用NetworkManger
+$ systemctl stop NetworkManger
+$ systemctl status NetworkManger
+$ systemctl disable NetworkManger
+##关闭SELINUX
+$ vi /etc/sysconfig/selinux   #按i进入编辑模式，编辑后冒号:wq进行保存退出
+     SELINUX=enforceing改为SELINUX=disabled
+$ cat /etc/sysconfig/selinux  #检查修改正确
+##设置虚拟网卡的传输队列长度
+$ echo "SUBSYSTEM=="net", ACTION=="add", KERNEL=="ontapn*",
+ATTR{tx_queue_len}="5000"" > /etc/udev/rules.d/99-ontaptxqueuelen.rules
+     [root@kvm01 ~]# ls /etc/udev/rules.d
+     70-persistent-ipoib.rules  99-ontaptxqueuelen.rules
+     [root@kvm01 ~]# 
+     [root@kvm01 ~]# cat /etc/udev/rules.d/99-ontaptxqueuelen.rules 
+     SUBSYSTEM==net, ACTION==add, KERNEL==ontapn*,
+     ATTR{tx_queue_len}=5000
+     [root@kvm01 ~]#
+$ reboot  #重启主机生效
+
+2. 安装KVM及相关服务，启动KVM服务
+$ yum -y install qemu-kvmqemu-img qemu-kvm-tools libvirt \
+libvirt-client virt-install bridge-utils libguestfs-tools virt-manager python-virtinst \
+libvirt-python tunctl bridge-utils virt-viewer virt-v2v net-tools
+$ systemctl start libvirtd.service
+$ systemctl status libvirtd.service
+$ systemctl enable libvirtd.service
+
+3.确认主机虚拟化功能是否打开
+$ lsmod | grep kvm
+     [root@kvm01 ~]# lsmod | grep kvm
+     kvm_intel             183621  0 
+     kvm                   586948  1 kvm_intel
+     irqbypass              13503  1 kvm
+     [root@kvm01 ~]# 
+
+4. 安装openswitch（将文件openvswitch.tar拷贝到/openvswitch下）
+$ mkdir /openvswitch
+$ tar -xzvf openvswitch.tar
+$ cd ~/openvswitch/openvswitch
+     [root@kvm01 openvswitch]# ls
+     libatomic-4.8.5-39.el7.x86_64.rpm  openvswitch-2.7.3-1.x86_64.rpm
+     [root@kvm01 openvswitch]# pwd
+     /openvswitch/openvswitch
+$ rpm -ivh libatomic-4.8.5-39.el7.x86_64.rpm
+$ rpm -ivh openvswitch-2.7.3-1.x86_64.rpm
+$ systemctl start openvswitch
+$ systemctl status openvswitch
+$ systemctl enable openvswitch
+
+5. 拷贝deploy软件到/ontap
+$ mkdir /ontap
+     [root@kvm01 ontap]# ls
+     ONTAPdeploy2.12.3_nodar.raw.tgz
+     [root@kvm01 ontap]# 
+$ tar -xzvf ONTAPdeploy2.12.3_nodar.raw.tgz
+     [root@kvm01 ~]# ls /ontap/ -l
+     total 45570744
+     -rw-r--r--. 1 root root  3714768239 Jan 20 11:54 ONTAPdeploy2.12.3_nodar.raw.tgz
+     -rw-r--r--  1 2087   30 42949672960 Nov 19 22:52 ONTAPdeploy.raw
+     [root@kvm01 ~]#
+
+6. 检查openswitch
+$ ovs-vsctl -V
+$ ovs-vsctl show
+     [root@kvm01 openvswitch]# ovs-vsctl -V
+     ovs-vsctl (Open vSwitch) 2.5.0
+     Compiled Apr 28 2016 10:25:38
+     DB Schema 7.12.1
+     [root@kvm01 openvswitch]# ovs-vsctl show
+     4898eea0-4301-44fb-a2f4-b79db86c72bb
+         ovs_version: "2.5.0"
+     [root@kvm01 openvswitch]# 
+
+7. 配置openswitch
+$ ovs-vsctl add-br br-ots
+$ ovs-vsctl add-br br-extend
+$ ovs-vsctl show
+vi /etc/sysconfig/network-scripts/ifcfg-br-extend	 
+	 [root@kvm01 ~]# cat /etc/sysconfig/network-scripts/ifcfg-br-extend
+	 DEVICE=br-extend
+     DEVICETYPE=ovs
+     TYPE=OVSBridge
+     ONBOOT=yes
+     BOOTPROTO=static
+     IPADDR=172.16.0.141
+     PREFIX=23
+ 
+$ vi /etc/sysconfig/network-scripts/ifcfg-ens192 
+     [root@kvm01 ~]# cat /etc/sysconfig/network-scripts/ifcfg-ens192
+	 TYPE="Ethernet"
+     PROXY_METHOD="none"
+     BROWSER_ONLY="no"
+     BOOTPROTO="none"
+     DEFROUTE="yes"
+     IPV4_FAILURE_FATAL="no"
+     IPV6INIT="yes"
+     IPV6_AUTOCONF="yes"
+     IPV6_DEFROUTE="yes"
+     IPV6_FAILURE_FATAL="no"
+     IPV6_ADDR_GEN_MODE="stable-privacy"
+     NAME="ens192"
+     UUID="88940528-383c-438a-8db1-e563143fb6eb"
+     DEVICE="ens192"
+     ONBOOT="yes"
+     IPADDR=172.16.0.140
+     PREFIX=23
+     GATEWAY=172.16.1.1
+     DNS1=114.114.114.114
+$ vi /etc/sysconfig/network-scripts/ifcfg-ens224
+     [root@kvm01 ~]# cat /etc/sysconfig/network-scripts/ifcfg-ens224
+	 TYPE=OVSPort
+     #PROXY_METHOD=none
+     #BROWSER_ONLY=no
+     #BOOTPROTO=dhcp
+     #DEFROUTE=yes
+     #IPV4_FAILURE_FATAL=no
+     #IPV6INIT=yes
+     #IPV6_AUTOCONF=yes
+     #IPV6_DEFROUTE=yes
+     #IPV6_FAILURE_FATAL=no
+     #IPV6_ADDR_GEN_MODE=stable-privacy
+     NAME=ens224
+     UUID=a06278e2-e191-403c-8a53-a473aa55f495
+     DEVICE=ens224
+     DEVICETYPE=ovs
+     ONBOOT=yes
+     OVS_BRIDGE=br-extend
+$ ovs-vsctl add-port br-extend ens224
+$ ip addr flush dev ens224
+$ ip addr add 172.16.0.141/23 dev br-extend
+$ ip link set dev br-extend up
+$ systemctl restart network
+$ ovs-vsctl show
+     [root@kvm01 ~]# ovs-vsctl show
+	98a54dd4-43ec-4123-b17f-ab48393d9798
+    Bridge br-extend
+        Port br-extend
+            Interface br-extend
+                type: internal
+        Port "ens224"
+            Interface "ens224"
+    ovs_version: "2.5.0"	 
+     [root@kvm01 ~]# 
+$ ping -I br-extend 172.16.1.1  #测试网桥
+     [root@ots01 ~]# ping -I br-extend 172.16.1.1
+     PING 172.16.1.1 (172.16.1.1) from 172.16.0.141 br-extend: 56(84) bytes of data.
+     64 bytes from 172.16.1.1: icmp_seq=1 ttl=255 time=1.43 ms
+     64 bytes from 172.16.1.1: icmp_seq=2 ttl=255 time=0.527 ms
+     64 bytes from 172.16.1.1: icmp_seq=3 ttl=255 time=0.571 ms
+     64 bytes from 172.16.1.1: icmp_seq=4 ttl=255 time=0.674 m
+
+8. 创建Storage Pool
+$ lsblk                              #显示Linux主机上的本地设备，然后选择将包含存储池的 LUN
+$ virsh pool-define-as pool_ots_sdc logical --source-dev /dev/sdc --target=/dev/pool_ots_sdc  #在设备上定义存储池
+$ virsh pool-build pool_ots_sdc      #构建存储池
+$ virsh pool-start pool_ots_sdc      #启动存储池
+$ virsh pool-autostart pool_ots_sdc  #将存储池配置为在系统启动时自动启动
+$ virsh pool-list                    #验证是否已创建存储池
+     [root@kvm01 ~]# lsblk
+     NAME                  MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+     sda                     8:0    0  100G  0 disk 
+     +-sda1                  8:1    0    1G  0 part /boot
+     +-sda2                  8:2    0   99G  0 part 
+       +-centos_kvm01-root 253:0    0   50G  0 lvm  /
+       +-centos_kvm01-swap 253:1    0  7.9G  0 lvm  [SWAP]
+       +-centos_kvm01-home 253:2    0 41.1G  0 lvm  /home
+     sdb                     8:16   0    1T  0 disk 
+     sr0                    11:0    1  4.3G  0 rom  
+     [root@kvm01 ~]# virsh pool-define-as pool_ots_sdc logical --source-dev /dev/sdc --target=/dev/pool_ots_sdc
+     Pool pool_ots defined
+     
+     [root@kvm01 ~]# virsh pool-build pool_ots_sdc
+     Pool pool_ots built
+     
+     [root@kvm01 ~]# virsh pool-start pool_ots_sdc
+     Pool pool_ots started
+     
+     [root@kvm01 ~]# virsh pool-autostart pool_ots_sdc
+     Pool pool_ots marked as autostarted
+     
+     [root@kvm01 ~]# virsh pool-list
+      Name                 State      Autostart 
+     -------------------------------------------
+      ontap                active     yes       
+      pool_ots_sdc         active     yes       
+     
+     [root@kvm01 ~]# 
+
+9. 部署Deploy VM
+$ virt-install --name=deploy-vm --vcpus=2 --ram=4096 --os-type=linux --controller=scsi,model=virtio-scsi \
+  --disk path=/ontap/ONTAPdeploy.raw,device=disk,bus=scsi,format=raw \
+  --network "type=bridge,source=br-extend,model=virtio,virtualport_type=openvswitch" \
+  --console=pty --import --wait 0
+     [root@kvm01 ~]# virt-install --name=deploy-vm --vcpus=2 --ram=4096 --os-type=linux --controller=scsi,model=virtio-scsi --disk path=/ontap/ONTAPdeploy.raw,device=disk,bus=scsi,format=raw --network "type=bridge,source=br-ots,model=virtio,virtualport_type=openvswitch" --console=pty --import --wait 0
+     WARNING  No operating system detected, VM performance may suffer. Specify an OS with --os-variant for optimal results.
+     
+     Starting install...
+     Domain creation completed.
+$ virsh list  #检查Deploy VM已启动
+     [root@kvm01 ~]# virsh list --all
+      Id    Name                           State
+     ----------------------------------------------------
+      1     deploy-vm                      running
+     [root@kvm01 ~]# 
+$ virsh autostart deploy-vm  #设置VM自动启动
+$ virsh list --autostart  #列所有设置为自动启动的VM
+     [root@kvm01 ontap]# virsh list --autostart
+      Id    Name                           State
+     ----------------------------------------------------
+      3     deploy-vm                      running
+      4     kvm-cm1-01                      running
+     [root@kvm01 ontap]# 
+$ virsh console deploy-vm  #连接到虚拟机控制台
+     Host name            : ots
+     Use DHCP to set networking information? [n]: 
+     Host IP address      : 172.16.0.142
+     Net mask             : 255.255.254.0
+     Gateway              : 172.16.1.1
+     Primary DNS address  : 172.16.1.22
+     Secondary DNS address: 
+     Please enter in all search domains separated by spaces (can be left blank):
+     remotelab.com
+     
+     Selected host name    : ots
+     Selected IP           : 172.16.0.142
+     Selected net mask     : 255.255.254.0
+     Selected gateway      : 172.16.1.1
+     Selected primary DNS  : 172.16.1.22
+     Selected secondary DNS: 
+     Search domains        : remotelab.com
+     Calculated network    : 172.16.0.0
+     Calculated broadcast  : 172.16.1.255
+     Are these values correct? [y]: y
+     
+     Applying network configuration. Please wait...
+     Continuing system startup. Please wait...
+     Generating SSL Certificate
+     Debian GNU/Linux 9 ots ttyS0
+     ots login: admin
+     Password:  (default password as admin123)
+     NetApp ONTAP Select Deploy Utility.
+     Copyright (C) NetApp Inc.
+     All rights reserved.
+     Version: NetApp Release 9.6.2123: 11-19-2019 09:39:01
+     Password change is required.
+	 Enter current password: 
+     Enter new password: 
+     Retype new password: 
+     Password for user "admin" updated successfully.
+     ONTAP Select Deploy Configuration
+     -------------------------
+     Enter Product Company: REMOTELAB   
+     Enter Proxy URL    : 
+     ONTAP Select Deploy configuration set successfully.
+     (ONTAPdeploy)
+$ deploy network show	 
+	 (ONTAPdeploy) deploy network show
+     +----------+---------------+
+     | Field    | Value         |
+     +----------+---------------+
+     | Hostname | deploy-vm     |
+     | Fqdn     | -             |
+     | Ipv4     | 172.16.0.142  |
+     | Netmask  | 255.255.254.0 |
+     | Gateway  | 172.16.1.1    |
+     +----------+---------------+
+     (ONTAPdeploy) 
+
+10. 登录到 Deploy 实用程序 Web 界面, 并创建和管理 ONTAP Select 集群。
+     https://<deploy_vm_ip>
