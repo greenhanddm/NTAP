@@ -1,0 +1,99 @@
+Example1: Allow group full access to all buckets
+In this example, all members of the group are permitted full access to all buckets owned by the
+tenant account unless explicitly denied by bucket policy.
+{
+  "Statement": [
+     {
+       "Action": "s3:*",
+       "Effect": "Allow",
+       "Resource": "arn:sgws:s3:::*"
+     }
+  ]
+}
+
+Example2: Allow group read-only access to all buckets
+In this example, all members of the group have read-only access to S3 resources, unless
+explicitly denied by the bucket policy. For example, users in this group can list objects and
+read object data, metadata, and tags.
+{
+  "Statement": [
+    {
+      "Sid": "AllowGroupReadOnlyAccess",
+      "Effect": "Allow",
+      "Action": [
+         "s3:ListAllMyBuckets",
+         "s3:ListBucket",
+         "s3:ListBucketVersions",
+         "s3:GetObject",
+         "s3:GetObjectTagging",
+         "s3:GetObjectVersion",
+         "s3:GetObjectVersionTagging"
+      ],
+      "Resource": "arn:aws:s3:::*"
+    }
+  ]
+}
+
+Example3: Access Group for specific Bucket
+{
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::1-1/*"
+    }
+  ]
+}
+
+Example4: Allow group members full access to only their “folder” in a bucket
+In this example, members of the group are only permitted to list and access their specific folder
+(key prefix) in the specified bucket. Note that access permissions from other group policies and
+the bucket policy should be considered when determining the privacy of these folders.
+{
+ "Statement": [
+   {
+     "Sid": "AllowListBucketOfASpecificUserPrefix",
+     "Effect": "Allow",
+     "Action": "s3:ListBucket",
+     "Resource": "arn:sgws:s3:::1-1",
+     "Condition": {
+        "StringLike": {
+           "s3:prefix": "${sgws:username}/*"
+        }
+     }
+   },
+   {
+     "Sid": "AllowUserSpecificActionsOnlyInTheSpecificUserPrefix",
+     "Effect": "Allow",
+     "Action": "s3:*Object",
+     "Resource": "arn:sgws:s3:::1-1/${sgws:username}/*"
+   }
+ ]
+}
+
+Example5:
+{
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "urn:sgws:s3:::*"
+      ]
+    },
+    {
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutOverwriteObject",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutBucketPolicy"
+      ],
+      "Resource": [
+        "urn:sgws:s3:::*"
+      ]
+    }
+  ]
+}
